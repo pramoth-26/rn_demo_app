@@ -1,58 +1,49 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
   FlatList,
-  ActivityIndicator,
   StyleSheet,
   Image,
   TouchableOpacity,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Picker } from '@react-native-picker/picker';
 import { useTheme } from '../context/ThemeContext';
 import { fetchProducts } from '../api/productsApi';
-import { addDoc, collection } from 'firebase/firestore';
-import { db } from '../firebase';
-
-const LIMIT = 10;
+import { signOut } from 'firebase/auth';
+import { auth } from '../firebase';
 
 const HomeScreen = ({ navigation }) => {
   const { theme, toggleTheme } = useTheme();
   const [products, setProducts] = useState([]);
-  const [page, setPage] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
+  const [sortBy, setSortBy] = useState(null);
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [modalVisible, setModalVisible] = useState(false);
 
-  // Fetch products with pagination
-  const loadProducts = async () => {
-    if (loading || !hasMore) return;
-
-    setLoading(true);
-
+  // Logout function
+  const handleLogout = async () => {
     try {
-      const data = await fetchProducts(LIMIT, page * LIMIT);
+      await signOut(auth);
+    } catch (error) {
+      console.log('Logout error:', error);
+    }
+  };
 
-      setProducts(prev => {
-        const newProducts = [...prev, ...data.products];
+  // Fetch products
+  const loadProducts = async () => {
+    try {
+      const data = await fetchProducts();
+      setProducts(data.products);
 
-        // If no products and this is the first load, add sample data
-        if (newProducts.length === 0 && page === 0) {
-          console.log('No products found, adding sample data...');
-          addSampleDataIfEmpty();
-        }
-
-        return newProducts;
-      });
-
-      if (data.products.length < LIMIT) {
-        setHasMore(false);
+      // If no products, add sample data
+      if (data.products.length === 0) {
+        console.log('No products found, adding sample data...');
+        await addSampleDataIfEmpty();
       }
-
-      setPage(prev => prev + 1);
     } catch (error) {
       console.log('Error fetching products:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -68,13 +59,7 @@ const HomeScreen = ({ navigation }) => {
     </TouchableOpacity>
   );
 
-  // Loader at bottom
-  const renderFooter = () => {
-    if (!loading) return null;
-    return <ActivityIndicator size="large" style={{ marginVertical: 20 }} />;
-  };
-
-  // Load first page
+  // Load products
   useEffect(() => {
     loadProducts();
   }, []);
@@ -88,21 +73,24 @@ const HomeScreen = ({ navigation }) => {
           title: 'iPhone 15 Pro',
           price: 999,
           thumbnail: 'https://images.unsplash.com/photo-1592750475338-74b7b21085ab?w=400',
-          description: 'Latest iPhone with advanced features'
+          description: 'Latest iPhone with advanced features',
+          category: 'Mobiles'
         },
         {
           id: 2,
           title: 'MacBook Air M3',
           price: 1099,
           thumbnail: 'https://images.unsplash.com/photo-1541807084-5c52b6b3adef?w=400',
-          description: 'Powerful laptop for professionals'
+          description: 'Powerful laptop for professionals',
+          category: 'laptops'
         },
         {
           id: 3,
           title: 'AirPods Pro',
-          price: 249,
-          thumbnail: 'https://images.unsplash.com/photo-1606220945770-b5b6c2c9bf1d?w=400',
-          description: 'Wireless earbuds with noise cancellation'
+          price: 8000,
+          thumbnail: 'https://upload.wikimedia.org/wikipedia/commons/2/2f/AirPods_Pro_%282nd_generation%29.jpg',
+          description: 'Wireless earbuds with noise cancellation',
+          category: 'mobile accessories'
         }
       ];
 
@@ -114,14 +102,25 @@ const HomeScreen = ({ navigation }) => {
       console.log('Sample products added successfully!');
 
       // Reload products after adding
-      setProducts([]);
-      setPage(0);
-      setHasMore(true);
       loadProducts();
     } catch (error) {
       console.error('Error adding sample products:', error);
     }
   };
+
+  // Filtered and sorted products
+  const filteredProducts = useMemo(() => {
+    let filtered = products;
+    if (selectedCategory !== 'All') {
+      filtered = filtered.filter(p => p.category === selectedCategory);
+    }
+    if (sortBy === 'asc') {
+      filtered = [...filtered].sort((a, b) => a.price - b.price);
+    } else if (sortBy === 'desc') {
+      filtered = [...filtered].sort((a, b) => b.price - a.price);
+    }
+    return filtered;
+  }, [products, selectedCategory, sortBy]);
 
   const styles = StyleSheet.create({
     container: {
@@ -134,16 +133,49 @@ const HomeScreen = ({ navigation }) => {
       justifyContent: 'space-between',
       alignItems: 'center',
       marginBottom: 10,
-    },
+    }, 
     headerTitle: {
       fontSize: 24,
       fontWeight: 'bold',
       color: theme.colors.text,
     },
+    headerButtons: {
+      flexDirection: 'row',
+    },
+    iconButton: {
+      padding: 10,
+      marginLeft: 10,
+    },
     toggleButton: {
       padding: 10,
       backgroundColor: theme.colors.primary,
       borderRadius: 5,
+    },
+    filterContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: 10,
+    },
+    filterSection: {
+      flex: 1,
+      marginHorizontal: 5,
+    },
+    filterLabel: {
+      fontSize: 16,
+      fontWeight: 'bold',
+      color: theme.colors.text,
+      marginTop: 10,
+      marginBottom: 5,
+    },
+    checkboxContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 10,
+    },
+    checkboxText: {
+      marginLeft: 10,
+      color: theme.colors.text,
+      fontSize: 14,
     },
     card: {
       backgroundColor: theme.colors.card,
@@ -165,28 +197,119 @@ const HomeScreen = ({ navigation }) => {
     },
     price: {
       fontSize: 14,
-      color: 'green',
+      color: theme.colors.primary,
       marginTop: 4,
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    modalContent: {
+      backgroundColor: theme.colors.background,
+      borderRadius: 10,
+      padding: 20,
+      width: '90%',
+      maxHeight: '80%',
+    },
+    modalTitle: {
+      fontSize: 20,
+      fontWeight: 'bold',
+      color: theme.colors.text,
+      marginBottom: 20,
+      textAlign: 'center',
+    },
+    closeButton: {
+      backgroundColor: theme.colors.primary,
+      padding: 10,
+      borderRadius: 5,
+      alignItems: 'center',
+      marginTop: 20,
+    },
+    closeButtonText: {
+      color: theme.colors.text,
+      fontWeight: 'bold',
     },
   });
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Products</Text>
-        <TouchableOpacity style={styles.toggleButton} onPress={toggleTheme}>
-          <Ionicons name={theme.dark ? 'sunny' : 'moon'} size={24} color="#FFFFFF" />
-        </TouchableOpacity>
+        <Text style={styles.headerTitle} >Products</Text>
+        <View style={styles.headerButtons}>
+          <TouchableOpacity style={styles.iconButton} onPress={() => setModalVisible(true)}>
+            <Ionicons name="filter" size={24} color={theme.colors.text} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.iconButton} onPress={toggleTheme}>
+            <Ionicons name={theme.dark ? 'sunny' : 'moon'} size={24} color={theme.colors.text} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.iconButton} onPress={handleLogout}>
+            <Ionicons name="log-out" size={24} color={theme.colors.text} />
+          </TouchableOpacity>
+        </View>
       </View>
       <FlatList
-        data={products}
+        data={filteredProducts}
         keyExtractor={item => item.docId}
         renderItem={renderItem}
-        onEndReached={loadProducts}
-        onEndReachedThreshold={0.5}
-        ListFooterComponent={renderFooter}
         showsVerticalScrollIndicator={false}
       />
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Filters</Text>
+            <View style={styles.filterContainer}>
+              <View style={styles.filterSection}>
+                <Text style={styles.filterLabel}>Category:</Text>
+                {['All', 'Mobiles', 'laptops', 'mobile accessories', 'home appliances'].map(category => (
+                  <TouchableOpacity
+                    key={category}
+                    onPress={() => setSelectedCategory(category)}
+                    style={styles.checkboxContainer}
+                  >
+                    <Ionicons
+                      name={selectedCategory === category ? 'checkmark-circle' : 'radio-button-off'}
+                      size={20}
+                      color={theme.colors.primary}
+                    />
+                    <Text style={styles.checkboxText}>{category}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <View style={styles.filterSection}>
+                <Text style={styles.filterLabel}>Sort by Price:</Text>
+                {[
+                  { label: 'None', value: null },
+                  { label: 'Low to High', value: 'asc' },
+                  { label: 'High to Low', value: 'desc' }
+                ].map(item => (
+                  <TouchableOpacity
+                    key={item.value}
+                    onPress={() => setSortBy(item.value)}
+                    style={styles.checkboxContainer}
+                  >
+                    <Ionicons
+                      name={sortBy === item.value ? 'checkmark-circle' : 'radio-button-off'}
+                      size={20}
+                      color={theme.colors.primary}
+                    />
+                    <Text style={styles.checkboxText}>{item.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+            <TouchableOpacity style={styles.closeButton} onPress={() => setModalVisible(false)}>
+              <Text style={styles.closeButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
