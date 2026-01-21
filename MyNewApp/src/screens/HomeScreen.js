@@ -84,7 +84,13 @@ const HomeScreen = ({ navigation }) => {
       const data = await fetchProducts(15, lastDoc);
       // Add a 0.5 second delay before showing new items
       setTimeout(() => {
-        setProducts(prev => [...prev, ...data.products]);
+        setProducts(prev => {
+          const combined = [...prev, ...data.products];
+          const unique = Array.from(
+          new Map(combined.map(item => [item.docId, item])).values()
+        );
+  return unique;
+});
         setLastDoc(data.lastDoc);
         setHasMore(data.products.length === 15);
         setLoading(false);
